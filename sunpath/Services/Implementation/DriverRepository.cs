@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace sunpath.Services.Implementation
@@ -19,7 +18,7 @@ namespace sunpath.Services.Implementation
             _connectionString = configuration.GetConnectionString("SunPathConnection");
         }
 
-        public List<Driver> GetAll()
+        public async Task<List<Driver>> GetAllAsync()
         {
             var drivers = new List<Driver>();
 
@@ -29,11 +28,11 @@ namespace sunpath.Services.Implementation
                 FROM Drivers
                 ORDER BY Id DESC", connection))
             {
-                connection.Open();
+                await connection.OpenAsync();
 
-                using (var reader = command.ExecuteReader())
+                using (var reader = await command.ExecuteReaderAsync())
                 {
-                    while (reader.Read())
+                    while (await reader.ReadAsync())
                     {
                         drivers.Add(MapDriver(reader));
                     }
@@ -43,7 +42,7 @@ namespace sunpath.Services.Implementation
             return drivers;
         }
 
-        public Driver GetById(int id)
+        public async Task<Driver> GetByIdAsync(int id)
         {
             using (var connection = new SqlConnection(_connectionString))
             using (var command = new SqlCommand(@"
@@ -53,11 +52,11 @@ namespace sunpath.Services.Implementation
             {
                 command.Parameters.Add("@Id", SqlDbType.Int).Value = id;
 
-                connection.Open();
+                await connection.OpenAsync();
 
-                using (var reader = command.ExecuteReader())
+                using (var reader = await command.ExecuteReaderAsync())
                 {
-                    if (reader.Read())
+                    if (await reader.ReadAsync())
                     {
                         return MapDriver(reader);
                     }
@@ -67,7 +66,7 @@ namespace sunpath.Services.Implementation
             return null;
         }
 
-        public int Create(Driver driver)
+        public async Task<int> CreateAsync(Driver driver)
         {
             using (var connection = new SqlConnection(_connectionString))
             using (var command = new SqlCommand(@"
@@ -90,19 +89,20 @@ namespace sunpath.Services.Implementation
 
                 SELECT CAST(SCOPE_IDENTITY() AS INT);", connection))
             {
-                command.Parameters.Add("@FirstName", SqlDbType.NVarChar, 100).Value = (object)driver.FirstName ?? DBNull.Value;
-                command.Parameters.Add("@LastName", SqlDbType.NVarChar, 100).Value = (object)driver.LastName ?? DBNull.Value;
-                command.Parameters.Add("@NationalId", SqlDbType.NVarChar, 20).Value = (object)driver.NationalId ?? DBNull.Value;
-                command.Parameters.Add("@Phone", SqlDbType.NVarChar, 20).Value = (object)driver.Phone ?? DBNull.Value;
+                command.Parameters.Add("@FirstName", SqlDbType.NVarChar, 100).Value = driver.FirstName;
+                command.Parameters.Add("@LastName", SqlDbType.NVarChar, 100).Value = driver.LastName;
+                command.Parameters.Add("@NationalId", SqlDbType.NVarChar, 20).Value = driver.NationalId;
+                command.Parameters.Add("@Phone", SqlDbType.NVarChar, 20).Value = driver.Phone;
                 command.Parameters.Add("@LicenseType", SqlDbType.Int).Value = driver.LicenseType;
 
-                connection.Open();
+                await connection.OpenAsync();
 
-                return (int)command.ExecuteScalar();
+                var result = await command.ExecuteScalarAsync();
+                return Convert.ToInt32(result);
             }
         }
 
-        public bool Update(int id, Driver driver)
+        public async Task<bool> UpdateAsync(int id, Driver driver)
         {
             using (var connection = new SqlConnection(_connectionString))
             using (var command = new SqlCommand(@"
@@ -116,19 +116,19 @@ namespace sunpath.Services.Implementation
                 WHERE Id = @Id", connection))
             {
                 command.Parameters.Add("@Id", SqlDbType.Int).Value = id;
-                command.Parameters.Add("@FirstName", SqlDbType.NVarChar, 100).Value = (object)driver.FirstName ?? DBNull.Value;
-                command.Parameters.Add("@LastName", SqlDbType.NVarChar, 100).Value = (object)driver.LastName ?? DBNull.Value;
-                command.Parameters.Add("@NationalId", SqlDbType.NVarChar, 20).Value = (object)driver.NationalId ?? DBNull.Value;
-                command.Parameters.Add("@Phone", SqlDbType.NVarChar, 20).Value = (object)driver.Phone ?? DBNull.Value;
+                command.Parameters.Add("@FirstName", SqlDbType.NVarChar, 100).Value = driver.FirstName;
+                command.Parameters.Add("@LastName", SqlDbType.NVarChar, 100).Value = driver.LastName;
+                command.Parameters.Add("@NationalId", SqlDbType.NVarChar, 20).Value = driver.NationalId;
+                command.Parameters.Add("@Phone", SqlDbType.NVarChar, 20).Value = driver.Phone;
                 command.Parameters.Add("@LicenseType", SqlDbType.Int).Value = driver.LicenseType;
 
-                connection.Open();
+                await connection.OpenAsync();
 
-                return command.ExecuteNonQuery() > 0;
+                return await command.ExecuteNonQueryAsync() > 0;
             }
         }
 
-        public bool Delete(int id)
+        public async Task<bool> DeleteAsync(int id)
         {
             using (var connection = new SqlConnection(_connectionString))
             using (var command = new SqlCommand(@"
@@ -137,27 +137,28 @@ namespace sunpath.Services.Implementation
             {
                 command.Parameters.Add("@Id", SqlDbType.Int).Value = id;
 
-                connection.Open();
+                await connection.OpenAsync();
 
-                return command.ExecuteNonQuery() > 0;
+                return await command.ExecuteNonQueryAsync() > 0;
             }
         }
 
-        public bool ExistsByNationalId(string nationalId, int? excludeId = null)
+        public async Task<bool> ExistsByNationalIdAsync(string nationalId, int? excludeId = null)
         {
             using (var connection = new SqlConnection(_connectionString))
             using (var command = new SqlCommand(@"
                 SELECT COUNT(1)
                 FROM Drivers
                 WHERE NationalId = @NationalId
-                AND (@ExcludeId IS NULL OR Id <> @ExcludeId)", connection))
+                  AND (@ExcludeId IS NULL OR Id <> @ExcludeId)", connection))
             {
-                command.Parameters.Add("@NationalId", SqlDbType.NVarChar, 20).Value = (object)nationalId ?? DBNull.Value;
+                command.Parameters.Add("@NationalId", SqlDbType.NVarChar, 20).Value = nationalId;
                 command.Parameters.Add("@ExcludeId", SqlDbType.Int).Value = (object)excludeId ?? DBNull.Value;
 
-                connection.Open();
+                await connection.OpenAsync();
 
-                return (int)command.ExecuteScalar() > 0;
+                var result = await command.ExecuteScalarAsync();
+                return Convert.ToInt32(result) > 0;
             }
         }
 
