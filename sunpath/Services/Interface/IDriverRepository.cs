@@ -8,11 +8,11 @@ namespace sunpath.Services.Interface
 {
     public interface IDriverRepository
     {
-        List<Driver> GetAll();
-        Driver GetById(int id);
-        int Create(Driver driver);
-        bool Update(int id, Driver driver);
-        bool Delete(int id);
-        bool ExistsByNationalId(string nationalId, int? excludeId = null);
+        Task<List<Driver>> GetAllAsync();
+        Task<Driver> GetByIdAsync(int id);
+        Task<int> CreateAsync(Driver driver);
+        Task<bool> UpdateAsync(int id, Driver driver);
+        Task<bool> DeleteAsync(int id);
+        Task<bool> ExistsByNationalIdAsync(string nationalId, int? excludeId = null);
     }
 }
