@@ -1,6 +1,4 @@
-﻿using Microsoft.AspNetCore.SignalR;
-using sunpath.Data;
-using sunpath.Hubs;
+﻿using Microsoft.Extensions.Configuration;
 using sunpath.Models;
 using sunpath.Services.Interface;
 using System;
@@ -13,147 +11,287 @@ namespace sunpath.Services.Implementation
 {
     public class VehicleService : IVehicleService
     {
-        private readonly DbHelper _db;
-        private readonly IHubContext<VehicleHub> _hubContext;
+        private readonly string _connectionString;
 
-        public VehicleService(
-            DbHelper db,
-            IHubContext<VehicleHub> hubContext)
+        public VehicleService(IConfiguration configuration)
         {
-            _db = db;
-            _hubContext = hubContext;
+            _connectionString = configuration.GetConnectionString("SunPathConnection");
         }
 
-        public async Task<IEnumerable<Vehicle>> GetAllVehiclesAsync()
+        public async Task<List<Vehicle>> GetAllVehiclesAsync()
         {
-            var list = new List<Vehicle>();
+            var vehicles = new List<Vehicle>();
 
-            using (var conn = _db.GetConnection())
+            using (var connection = new SqlConnection(_connectionString))
+            using (var command = new SqlCommand(@"
+                SELECT 
+                    v.Id,
+                    v.PlateNumber,
+                    v.Model,
+                    v.Status,
+                    v.LastLatitude,
+                    v.LastLongitude,
+                    v.LastUpdateAt,
+                    v.Speed,
+                    v.Heading,
+                    v.Latitude,
+                    v.Longitude,
+                    v.LastUpdate,
+                    v.VehicleType,
+                    v.InsuranceNumber,
+                    v.InsuranceExpiryDate,
+                    v.CurrentDriverId,
+                    d.FirstName + ' ' + d.LastName AS CurrentDriverName
+                FROM Vehicles v
+                LEFT JOIN Drivers d ON d.Id = v.CurrentDriverId
+                ORDER BY v.Id DESC", connection))
             {
-                await conn.OpenAsync();
+                await connection.OpenAsync();
 
-                var sql = @"
-                    SELECT
-                        Id,
-                        PlateNumber,
-                        Status,
-                        Latitude,
-                        Longitude,
-                        Speed,
-                        Heading,
-                        LastUpdate
-                    FROM Vehicles";
-
-                using (var cmd = new SqlCommand(sql, conn))
-                using (var reader = await cmd.ExecuteReaderAsync())
+                using (var reader = await command.ExecuteReaderAsync())
                 {
                     while (await reader.ReadAsync())
                     {
-                        list.Add(new Vehicle
-                        {
-                            Id = reader["Id"] == DBNull.Value
-                                ? 0
-                                : Convert.ToInt32(reader["Id"]),
-
-                            PlateNumber = reader["PlateNumber"] == DBNull.Value
-                                ? string.Empty
-                                : reader["PlateNumber"].ToString(),
-
-                            Status = reader["Status"] == DBNull.Value
-                                ? string.Empty
-                                : reader["Status"].ToString(),
-
-                            Latitude = reader["Latitude"] == DBNull.Value
-                                ? 0
-                                : Convert.ToDouble(reader["Latitude"]),
-
-                            Longitude = reader["Longitude"] == DBNull.Value
-                                ? 0
-                                : Convert.ToDouble(reader["Longitude"]),
-
-                            Speed = reader["Speed"] == DBNull.Value
-                                ? 0
-                                : Convert.ToDouble(reader["Speed"]),
-
-                            Heading = reader["Heading"] == DBNull.Value
-                                ? 0
-                                : Convert.ToDouble(reader["Heading"]),
-
-                            LastUpdate = reader["LastUpdate"] == DBNull.Value
-                                ? DateTime.MinValue
-                                : Convert.ToDateTime(reader["LastUpdate"])
-                        });
+                        vehicles.Add(MapVehicle(reader));
                     }
                 }
             }
 
-            return list;
+            return vehicles;
         }
 
-        public async Task UpdateVehicleStatusAsync(
+        public async Task<Vehicle> GetByIdAsync(int id)
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            using (var command = new SqlCommand(@"
+                SELECT 
+                    v.Id,
+                    v.PlateNumber,
+                    v.Model,
+                    v.Status,
+                    v.LastLatitude,
+                    v.LastLongitude,
+                    v.LastUpdateAt,
+                    v.Speed,
+                    v.Heading,
+                    v.Latitude,
+                    v.Longitude,
+                    v.LastUpdate,
+                    v.VehicleType,
+                    v.InsuranceNumber,
+                    v.InsuranceExpiryDate,
+                    v.CurrentDriverId,
+                    d.FirstName + ' ' + d.LastName AS CurrentDriverName
+                FROM Vehicles v
+                LEFT JOIN Drivers d ON d.Id = v.CurrentDriverId
+                WHERE v.Id = @Id", connection))
+            {
+                command.Parameters.Add("@Id", SqlDbType.Int).Value = id;
+
+                await connection.OpenAsync();
+
+                using (var reader = await command.ExecuteReaderAsync())
+                {
+                    if (await reader.ReadAsync())
+                    {
+                        return MapVehicle(reader);
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        public async Task<int> CreateAsync(Vehicle vehicle)
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            using (var command = new SqlCommand(@"
+                INSERT INTO Vehicles
+                (
+                    PlateNumber,
+                    Model,
+                    Status,
+                    Speed,
+                    Heading,
+                    VehicleType,
+                    InsuranceNumber,
+                    InsuranceExpiryDate,
+                    CurrentDriverId
+                )
+                VALUES
+                (
+                    @PlateNumber,
+                    @Model,
+                    @Status,
+                    @Speed,
+                    @Heading,
+                    @VehicleType,
+                    @InsuranceNumber,
+                    @InsuranceExpiryDate,
+                    @CurrentDriverId
+                );
+
+                SELECT CAST(SCOPE_IDENTITY() AS INT);", connection))
+            {
+                command.Parameters.Add("@PlateNumber", SqlDbType.NVarChar, 20).Value = vehicle.PlateNumber;
+                command.Parameters.Add("@Model", SqlDbType.NVarChar, 50).Value = (object)vehicle.Model ?? DBNull.Value;
+                command.Parameters.Add("@Status", SqlDbType.Int).Value = vehicle.Status;
+                command.Parameters.Add("@Speed", SqlDbType.Float).Value = vehicle.Speed;
+                command.Parameters.Add("@Heading", SqlDbType.Float).Value = vehicle.Heading;
+                command.Parameters.Add("@VehicleType", SqlDbType.Int).Value = vehicle.VehicleType;
+                command.Parameters.Add("@InsuranceNumber", SqlDbType.NVarChar, 50).Value = (object)vehicle.InsuranceNumber ?? DBNull.Value;
+                command.Parameters.Add("@InsuranceExpiryDate", SqlDbType.DateTime).Value = (object)vehicle.InsuranceExpiryDate ?? DBNull.Value;
+                command.Parameters.Add("@CurrentDriverId", SqlDbType.Int).Value = (object)vehicle.CurrentDriverId ?? DBNull.Value;
+
+                await connection.OpenAsync();
+
+                var result = await command.ExecuteScalarAsync();
+                return Convert.ToInt32(result);
+            }
+        }
+
+        public async Task<bool> UpdateAsync(int id, Vehicle vehicle)
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            using (var command = new SqlCommand(@"
+                UPDATE Vehicles
+                SET
+                    PlateNumber = @PlateNumber,
+                    Model = @Model,
+                    Status = @Status,
+                    VehicleType = @VehicleType,
+                    InsuranceNumber = @InsuranceNumber,
+                    InsuranceExpiryDate = @InsuranceExpiryDate,
+                    CurrentDriverId = @CurrentDriverId
+                WHERE Id = @Id", connection))
+            {
+                command.Parameters.Add("@Id", SqlDbType.Int).Value = id;
+                command.Parameters.Add("@PlateNumber", SqlDbType.NVarChar, 20).Value = vehicle.PlateNumber;
+                command.Parameters.Add("@Model", SqlDbType.NVarChar, 50).Value = (object)vehicle.Model ?? DBNull.Value;
+                command.Parameters.Add("@Status", SqlDbType.Int).Value = vehicle.Status;
+                command.Parameters.Add("@VehicleType", SqlDbType.Int).Value = vehicle.VehicleType;
+                command.Parameters.Add("@InsuranceNumber", SqlDbType.NVarChar, 50).Value = (object)vehicle.InsuranceNumber ?? DBNull.Value;
+                command.Parameters.Add("@InsuranceExpiryDate", SqlDbType.DateTime).Value = (object)vehicle.InsuranceExpiryDate ?? DBNull.Value;
+                command.Parameters.Add("@CurrentDriverId", SqlDbType.Int).Value = (object)vehicle.CurrentDriverId ?? DBNull.Value;
+
+                await connection.OpenAsync();
+                return await command.ExecuteNonQueryAsync() > 0;
+            }
+        }
+
+        public async Task<bool> DeleteAsync(int id)
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            using (var command = new SqlCommand(@"
+                DELETE FROM Vehicles
+                WHERE Id = @Id", connection))
+            {
+                command.Parameters.Add("@Id", SqlDbType.Int).Value = id;
+
+                await connection.OpenAsync();
+                return await command.ExecuteNonQueryAsync() > 0;
+            }
+        }
+
+        public async Task<bool> UpdateVehicleStatusAsync(
             int id,
-            double lat,
-            double lng,
+            double? latitude,
+            double? longitude,
             double speed,
             double heading)
         {
-            DateTime lastUpdate = DateTime.Now;
-
-            using (var conn = _db.GetConnection())
+            using (var connection = new SqlConnection(_connectionString))
+            using (var command = new SqlCommand(@"
+        UPDATE Vehicles
+        SET
+            Latitude = @Latitude,
+            Longitude = @Longitude,
+            LastLatitude = @LastLatitude,
+            LastLongitude = @LastLongitude,
+            Speed = @Speed,
+            Heading = @Heading,
+            LastUpdate = GETDATE(),
+            LastUpdateAt = GETDATE()
+        WHERE Id = @Id", connection))
             {
-                await conn.OpenAsync();
+                command.Parameters.Add("@Id", SqlDbType.Int).Value = id;
 
-                var sql = @"
-                    UPDATE Vehicles
-                    SET
-                        Latitude = @lat,
-                        Longitude = @lng,
-                        Speed = @speed,
-                        Heading = @heading,
-                        LastUpdate = GETDATE()
-                    WHERE Id = @id";
+                command.Parameters.Add("@Latitude", SqlDbType.Float).Value =
+                    latitude.HasValue ? (object)latitude.Value : DBNull.Value;
 
-                using (var cmd = new SqlCommand(sql, conn))
-                {
-                    cmd.Parameters.Add("@id", SqlDbType.Int).Value = id;
+                command.Parameters.Add("@Longitude", SqlDbType.Float).Value =
+                    longitude.HasValue ? (object)longitude.Value : DBNull.Value;
 
-                    var latitudeParameter = cmd.Parameters.Add("@lat", SqlDbType.Float);
-                    latitudeParameter.Value = lat;
+                var lastLatitudeParameter = command.Parameters.Add(
+                    "@LastLatitude",
+                    SqlDbType.Decimal);
 
-                    var longitudeParameter = cmd.Parameters.Add("@lng", SqlDbType.Float);
-                    longitudeParameter.Value = lng;
+                lastLatitudeParameter.Precision = 9;
+                lastLatitudeParameter.Scale = 6;
+                lastLatitudeParameter.Value = latitude.HasValue
+                    ? (object)Convert.ToDecimal(latitude.Value)
+                    : DBNull.Value;
 
-                    var speedParameter = cmd.Parameters.Add("@speed", SqlDbType.Float);
-                    speedParameter.Value = speed;
+                var lastLongitudeParameter = command.Parameters.Add(
+                    "@LastLongitude",
+                    SqlDbType.Decimal);
 
-                    var headingParameter = cmd.Parameters.Add("@heading", SqlDbType.Float);
-                    headingParameter.Value = heading;
+                lastLongitudeParameter.Precision = 9;
+                lastLongitudeParameter.Scale = 6;
+                lastLongitudeParameter.Value = longitude.HasValue
+                    ? (object)Convert.ToDecimal(longitude.Value)
+                    : DBNull.Value;
 
-                    var affectedRows = await cmd.ExecuteNonQueryAsync();
+                command.Parameters.Add("@Speed", SqlDbType.Float).Value = speed;
+                command.Parameters.Add("@Heading", SqlDbType.Float).Value = heading;
 
-                    // اگر خودرویی با این ID پیدا نشد، پیام SignalR ارسال نشود
-                    if (affectedRows == 0)
-                    {
-                        return;
-                    }
-                }
+                await connection.OpenAsync();
+
+                return await command.ExecuteNonQueryAsync() > 0;
             }
+        }
 
-            // ارسال موقعیت جدید به تمام کلاینت‌های متصل به SignalR
-            var payload = new
+        public async Task<bool> ExistsByPlateNumberAsync(string plateNumber, int? excludeId = null)
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            using (var command = new SqlCommand(@"
+                SELECT COUNT(1)
+                FROM Vehicles
+                WHERE PlateNumber = @PlateNumber
+                  AND (@ExcludeId IS NULL OR Id <> @ExcludeId)", connection))
             {
-                id = id,
-                latitude = lat,
-                longitude = lng,
-                speed = speed,
-                heading = heading,
-                lastUpdate = lastUpdate
-            };
+                command.Parameters.Add("@PlateNumber", SqlDbType.NVarChar, 20).Value = plateNumber;
+                command.Parameters.Add("@ExcludeId", SqlDbType.Int).Value = (object)excludeId ?? DBNull.Value;
 
-            await _hubContext.Clients.All.SendAsync(
-                "VehiclePositionChanged",
-                payload
-            );
+                await connection.OpenAsync();
+
+                var result = await command.ExecuteScalarAsync();
+                return Convert.ToInt32(result) > 0;
+            }
+        }
+
+        private Vehicle MapVehicle(SqlDataReader reader)
+        {
+            return new Vehicle
+            {
+                Id = reader["Id"] != DBNull.Value ? Convert.ToInt32(reader["Id"]) : 0,
+                PlateNumber = reader["PlateNumber"] != DBNull.Value ? reader["PlateNumber"].ToString() : null,
+                Model = reader["Model"] != DBNull.Value ? reader["Model"].ToString() : null,
+                Status = reader["Status"] != DBNull.Value ? Convert.ToInt32(reader["Status"]) : 0,
+                LastLatitude = reader["LastLatitude"] != DBNull.Value ? Convert.ToDecimal(reader["LastLatitude"]) : (decimal?)null,
+                LastLongitude = reader["LastLongitude"] != DBNull.Value ? Convert.ToDecimal(reader["LastLongitude"]) : (decimal?)null,
+                LastUpdateAt = reader["LastUpdateAt"] != DBNull.Value ? Convert.ToDateTime(reader["LastUpdateAt"]) : (DateTime?)null,
+                Speed = reader["Speed"] != DBNull.Value ? Convert.ToDouble(reader["Speed"]) : 0,
+                Heading = reader["Heading"] != DBNull.Value ? Convert.ToDouble(reader["Heading"]) : 0,
+                Latitude = reader["Latitude"] != DBNull.Value ? Convert.ToDouble(reader["Latitude"]) : (double?)null,
+                Longitude = reader["Longitude"] != DBNull.Value ? Convert.ToDouble(reader["Longitude"]) : (double?)null,
+                LastUpdate = reader["LastUpdate"] != DBNull.Value ? Convert.ToDateTime(reader["LastUpdate"]) : (DateTime?)null,
+                VehicleType = reader["VehicleType"] != DBNull.Value ? Convert.ToInt32(reader["VehicleType"]) : 0,
+                InsuranceNumber = reader["InsuranceNumber"] != DBNull.Value ? reader["InsuranceNumber"].ToString() : null,
+                InsuranceExpiryDate = reader["InsuranceExpiryDate"] != DBNull.Value ? Convert.ToDateTime(reader["InsuranceExpiryDate"]) : (DateTime?)null,
+                CurrentDriverId = reader["CurrentDriverId"] != DBNull.Value ? Convert.ToInt32(reader["CurrentDriverId"]) : (int?)null,
+                CurrentDriverName = reader["CurrentDriverName"] != DBNull.Value ? reader["CurrentDriverName"].ToString() : null
+            };
         }
     }
 }
