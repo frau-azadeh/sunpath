@@ -1,15 +1,24 @@
 ﻿using sunpath.Models;
-using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace sunpath.Services.Interface
 {
     public interface IVehicleService
     {
-        Task<IEnumerable<Vehicle>>GetAllVehiclesAsync();//گرفتن لیست تمام خودرو ها برای لود اولیه در نقشه
-        Task UpdateVehicleStatusAsync(int id, double lat, double lng, double speed, double heading);
+        Task<List<Vehicle>> GetAllVehiclesAsync();
+        Task<Vehicle> GetByIdAsync(int id);
+        Task<int> CreateAsync(Vehicle vehicle);
+        Task<bool> UpdateAsync(int id, Vehicle vehicle);
+        Task<bool> DeleteAsync(int id);
 
+        Task<bool> UpdateVehicleStatusAsync(
+            int id,
+            double? latitude,
+            double? longitude,
+            double speed,
+            double heading);
+
+        Task<bool> ExistsByPlateNumberAsync(string plateNumber, int? excludeId = null);
     }
 }
