@@ -3,6 +3,7 @@ using System;
 using sunpath.Services;
 using sunpath.Services.Interface;
 using System.Threading.Tasks;
+using System.Linq;
 
 namespace sunpath.Controllers
 {
@@ -35,16 +36,26 @@ namespace sunpath.Controllers
         public async Task<IActionResult> StartFromDb(int id)
         {
             var vehicles = await _vehicleService.GetAllVehiclesAsync();
-            foreach (var vehicle in vehicles)
+            var vehicle = vehicles.FirstOrDefault(v => v.Id == id);
+
+            if (vehicle == null)
+                return NotFound(new { message = "خودرو پیدا نشد" });
+
+            // بررسی اینکه آیا مختصات در دیتابیس وجود دارد یا خیر
+            if (!vehicle.Latitude.HasValue || !vehicle.Longitude.HasValue)
             {
-                if (vehicle.Id == id)
-                {
-                    _simulationService.Start(id, vehicle.Latitude, vehicle.Longitude, vehicle.Heading);
-                    return Ok(new { message = $"شبیه‌سازی از موقعیت فعلی DB شروع شد", vehicleId = id });
-                }
+                return BadRequest(new { message = "مختصات این خودرو در دیتابیس ثبت نشده است و امکان شروع شبیه‌سازی وجود ندارد." });
             }
-            return NotFound(new { message = "خودرو پیدا نشد" });
+
+            _simulationService.Start(id, vehicle.Latitude.Value, vehicle.Longitude.Value, vehicle.Heading);
+
+            return Ok(new
+            {
+                message = $"شبیه‌سازی خودرو با پلاک {vehicle.PlateNumber} از موقعیت دیتابیس آغاز شد.",
+                vehicleId = id
+            });
         }
+
 
         // توقف حرکت خودکار
         // DELETE: /api/simulation/stop/{id}
