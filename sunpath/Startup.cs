@@ -62,6 +62,7 @@ namespace sunpath
             services.AddTransient<DbHelper>();
 
             services.AddScoped<IVehicleService, VehicleService>();
+            services.AddScoped<IDispatchService, DispatchService>();
 
             services.AddScoped<IDriverRepository, DriverRepository>();
 
@@ -83,13 +84,13 @@ namespace sunpath
                 app.UseHsts();
             }
 
-            app.UseCors("CorsPolicy");
-
             app.UseHttpsRedirection();
+            app.UseCors("CorsPolicy");
 
             app.UseSignalR(routes =>
             {
                 routes.MapHub<VehicleHub>("/vehicleHub");
+                routes.MapHub<DriverHub>("/driverHub");
             });
 
             app.UseMvc();
