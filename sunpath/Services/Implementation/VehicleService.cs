@@ -41,9 +41,28 @@ namespace sunpath.Services.Implementation
                     v.InsuranceNumber,
                     v.InsuranceExpiryDate,
                     v.CurrentDriverId,
-                    d.FirstName + ' ' + d.LastName AS CurrentDriverName
+                    v.FuelConsumedLiters,
+                    v.TripDistanceKm,
+                    v.TripDurationSeconds,
+                    v.StopDurationSeconds,
+                    d.FirstName + ' ' + d.LastName AS CurrentDriverName,
+                    m.Id AS ActiveDispatchId,
+                    m.DriverId AS ActiveDispatchDriverId,
+                    m.OriginTitle AS OriginAddress,
+                    m.OriginLatitude AS OriginLat,
+                    m.OriginLongitude AS OriginLng,
+                    m.DestinationTitle AS DestinationAddress,
+                    m.DestinationLatitude AS DestinationLat,
+                    m.DestinationLongitude AS DestinationLng,
+                    CASE m.Status WHEN 1 THEN 'Assigned' WHEN 2 THEN 'InProgress' END AS DispatchStatus
                 FROM Vehicles v
                 LEFT JOIN Drivers d ON d.Id = v.CurrentDriverId
+                OUTER APPLY (
+                    SELECT TOP 1 *
+                    FROM Missions mx
+                    WHERE mx.VehicleId = v.Id AND mx.Status IN (1,2)
+                    ORDER BY mx.Id DESC
+                ) m
                 ORDER BY v.Id DESC", connection))
             {
                 await connection.OpenAsync();
@@ -81,9 +100,28 @@ namespace sunpath.Services.Implementation
                     v.InsuranceNumber,
                     v.InsuranceExpiryDate,
                     v.CurrentDriverId,
-                    d.FirstName + ' ' + d.LastName AS CurrentDriverName
+                    v.FuelConsumedLiters,
+                    v.TripDistanceKm,
+                    v.TripDurationSeconds,
+                    v.StopDurationSeconds,
+                    d.FirstName + ' ' + d.LastName AS CurrentDriverName,
+                    m.Id AS ActiveDispatchId,
+                    m.DriverId AS ActiveDispatchDriverId,
+                    m.OriginTitle AS OriginAddress,
+                    m.OriginLatitude AS OriginLat,
+                    m.OriginLongitude AS OriginLng,
+                    m.DestinationTitle AS DestinationAddress,
+                    m.DestinationLatitude AS DestinationLat,
+                    m.DestinationLongitude AS DestinationLng,
+                    CASE m.Status WHEN 1 THEN 'Assigned' WHEN 2 THEN 'InProgress' END AS DispatchStatus
                 FROM Vehicles v
                 LEFT JOIN Drivers d ON d.Id = v.CurrentDriverId
+                OUTER APPLY (
+                    SELECT TOP 1 *
+                    FROM Missions mx
+                    WHERE mx.VehicleId = v.Id AND mx.Status IN (1,2)
+                    ORDER BY mx.Id DESC
+                ) m
                 WHERE v.Id = @Id", connection))
             {
                 command.Parameters.Add("@Id", SqlDbType.Int).Value = id;
@@ -290,7 +328,20 @@ namespace sunpath.Services.Implementation
                 InsuranceNumber = reader["InsuranceNumber"] != DBNull.Value ? reader["InsuranceNumber"].ToString() : null,
                 InsuranceExpiryDate = reader["InsuranceExpiryDate"] != DBNull.Value ? Convert.ToDateTime(reader["InsuranceExpiryDate"]) : (DateTime?)null,
                 CurrentDriverId = reader["CurrentDriverId"] != DBNull.Value ? Convert.ToInt32(reader["CurrentDriverId"]) : (int?)null,
-                CurrentDriverName = reader["CurrentDriverName"] != DBNull.Value ? reader["CurrentDriverName"].ToString() : null
+                FuelConsumedLiters = reader["FuelConsumedLiters"] != DBNull.Value ? Convert.ToDouble(reader["FuelConsumedLiters"]) : 0,
+                TripDistanceKm = reader["TripDistanceKm"] != DBNull.Value ? Convert.ToDouble(reader["TripDistanceKm"]) : 0,
+                TripDurationSeconds = reader["TripDurationSeconds"] != DBNull.Value ? Convert.ToInt32(reader["TripDurationSeconds"]) : 0,
+                StopDurationSeconds = reader["StopDurationSeconds"] != DBNull.Value ? Convert.ToInt32(reader["StopDurationSeconds"]) : 0,
+                CurrentDriverName = reader["CurrentDriverName"] != DBNull.Value ? reader["CurrentDriverName"].ToString() : null,
+                ActiveDispatchId = reader["ActiveDispatchId"] != DBNull.Value ? Convert.ToInt32(reader["ActiveDispatchId"]) : (int?)null,
+                ActiveDispatchDriverId = reader["ActiveDispatchDriverId"] != DBNull.Value ? Convert.ToInt32(reader["ActiveDispatchDriverId"]) : (int?)null,
+                OriginAddress = reader["OriginAddress"] != DBNull.Value ? reader["OriginAddress"].ToString() : null,
+                OriginLat = reader["OriginLat"] != DBNull.Value ? Convert.ToDecimal(reader["OriginLat"]) : (decimal?)null,
+                OriginLng = reader["OriginLng"] != DBNull.Value ? Convert.ToDecimal(reader["OriginLng"]) : (decimal?)null,
+                DestinationAddress = reader["DestinationAddress"] != DBNull.Value ? reader["DestinationAddress"].ToString() : null,
+                DestinationLat = reader["DestinationLat"] != DBNull.Value ? Convert.ToDecimal(reader["DestinationLat"]) : (decimal?)null,
+                DestinationLng = reader["DestinationLng"] != DBNull.Value ? Convert.ToDecimal(reader["DestinationLng"]) : (decimal?)null,
+                DispatchStatus = reader["DispatchStatus"] != DBNull.Value ? reader["DispatchStatus"].ToString() : null
             };
         }
     }
