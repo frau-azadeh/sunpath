@@ -1,8 +1,9 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using sunpath.Hubs;
 using sunpath.Models;
 using sunpath.Models.Dto;
+using sunpath.Services.Implementation;
 using sunpath.Services.Interface;
 using System;
 using System.Linq;
@@ -14,195 +15,374 @@ namespace sunpath.Controllers
     [ApiController]
     public class DriversController : ControllerBase
     {
-        private readonly IDriverRepository _driverRepository;
-        private readonly IHubContext<DriverHub> _hubContext;
+        private readonly IDriverRepository _repository;
+        private readonly IHubContext<DriverHub> _hub;
 
         public DriversController(
-            IDriverRepository driverRepository,
-            IHubContext<DriverHub> hubContext)
+            IDriverRepository repository,
+            IHubContext<DriverHub> hub)
         {
-            _driverRepository = driverRepository;
-            _hubContext = hubContext;
+            _repository = repository;
+            _hub = hub;
         }
 
+        // دریافت تمام راننده‌ها
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            var drivers = await _driverRepository.GetAllAsync();
+            var drivers = await _repository.GetAllAsync();
+
             return Ok(drivers);
         }
 
+        // دریافت راننده بر اساس شناسه
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(int id)
         {
-            var driver = await _driverRepository.GetByIdAsync(id);
+            var driver = await _repository.GetByIdAsync(id);
 
             if (driver == null)
             {
-                return NotFound(new { message = "راننده پیدا نشد." });
+                return Ok(new
+                {
+                    success = false,
+                    message = "راننده پیدا نشد."
+                });
             }
 
             return Ok(driver);
         }
 
+        // ایجاد راننده
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] CreateDriverDto dto)
+        public async Task<IActionResult> Create(CreateDriverDto dto)
         {
-            var validationError = ValidateDriver(dto.FirstName, dto.LastName, dto.NationalId, dto.Phone, dto.LicenseType);
-            if (validationError != null)
+            if (dto == null)
             {
-                return BadRequest(new { message = validationError });
+                return Ok(new
+                {
+                    success = false,
+                    message = "اطلاعات راننده ارسال نشده است."
+                });
             }
 
-            var nationalId = dto.NationalId.Trim();
-            var phone = dto.Phone.Trim();
+            var error = Validate(
+                dto.FirstName,
+                dto.LastName,
+                dto.NationalId,
+                dto.Phone,
+                dto.LicenseType,
+                dto.Username,
+                dto.Password,
+                true);
 
-            if (await _driverRepository.ExistsByNationalIdAsync(nationalId))
+            if (error != null)
             {
-                return BadRequest(new { message = "راننده‌ای با این کد ملی قبلاً ثبت شده است." });
+                return Ok(new
+                {
+                    success = false,
+                    message = error
+                });
             }
 
-            var driver = new Driver
+            if (await _repository.ExistsByNationalIdAsync(dto.NationalId.Trim()))
             {
-                FirstName = dto.FirstName.Trim(),
-                LastName = dto.LastName.Trim(),
-                NationalId = nationalId,
-                Phone = phone,
-                LicenseType = dto.LicenseType
-            };
+                return Ok(new
+                {
+                    success = false,
+                    message = "این کد ملی قبلاً ثبت شده است."
+                });
+            }
+
+            if (await _repository.ExistsByUsernameAsync(dto.Username.Trim()))
+            {
+                return Ok(new
+                {
+                    success = false,
+                    message = "این نام کاربری قبلاً استفاده شده است."
+                });
+            }
+
+            var driver = BuildDriver(
+                dto.FirstName,
+                dto.LastName,
+                dto.NationalId,
+                dto.Phone,
+                dto.LicenseType,
+                dto.Username);
+
+            driver.PasswordHash =
+                PasswordHasher.Hash(dto.Password.Trim());
 
             try
             {
-                var newId = await _driverRepository.CreateAsync(driver);
-                var createdDriver = await _driverRepository.GetByIdAsync(newId);
+                var id = await _repository.CreateAsync(driver);
 
-                await _hubContext.Clients.All.SendAsync("DriverCreated", createdDriver);
+                var created = await _repository.GetByIdAsync(id);
 
-                return CreatedAtAction(nameof(GetById), new { id = newId }, createdDriver);
+                await _hub.Clients.All.SendAsync(
+                    "DriverCreated",
+                    created);
+
+                return Ok(new
+                {
+                    success = true,
+                    id = id,
+                    data = created,
+                    message = "راننده با موفقیت ثبت شد."
+                });
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                return StatusCode(500, new { message = "خطا در ثبت راننده." });
+                return Ok(new
+                {
+                    success = false,
+                    message = "خطا در ثبت راننده.",
+                    detail = ex.Message
+                });
             }
         }
 
+        // ویرایش راننده
         [HttpPut("{id}")]
-        public async Task<IActionResult> Update(int id, [FromBody] UpdateDriverDto dto)
+        public async Task<IActionResult> Update(
+            int id,
+            UpdateDriverDto dto)
         {
-            var existingDriver = await _driverRepository.GetByIdAsync(id);
-            if (existingDriver == null)
+            if (dto == null)
             {
-                return NotFound(new { message = "راننده پیدا نشد." });
+                return Ok(new
+                {
+                    success = false,
+                    message = "اطلاعات راننده ارسال نشده است."
+                });
             }
 
-            var validationError = ValidateDriver(dto.FirstName, dto.LastName, dto.NationalId, dto.Phone, dto.LicenseType);
-            if (validationError != null)
+            var existing = await _repository.GetByIdAsync(id);
+
+            if (existing == null)
             {
-                return BadRequest(new { message = validationError });
+                return Ok(new
+                {
+                    success = false,
+                    message = "راننده پیدا نشد."
+                });
             }
 
-            var nationalId = dto.NationalId.Trim();
-            var phone = dto.Phone.Trim();
+            var error = Validate(
+                dto.FirstName,
+                dto.LastName,
+                dto.NationalId,
+                dto.Phone,
+                dto.LicenseType,
+                dto.Username,
+                dto.Password,
+                false);
 
-            if (await _driverRepository.ExistsByNationalIdAsync(nationalId, id))
+            if (error != null)
             {
-                return BadRequest(new { message = "کد ملی وارد شده برای راننده دیگری ثبت شده است." });
+                return Ok(new
+                {
+                    success = false,
+                    message = error
+                });
             }
 
-            var driver = new Driver
+            if (await _repository.ExistsByNationalIdAsync(
+                dto.NationalId.Trim(),
+                id))
             {
-                FirstName = dto.FirstName.Trim(),
-                LastName = dto.LastName.Trim(),
-                NationalId = nationalId,
-                Phone = phone,
-                LicenseType = dto.LicenseType
-            };
+                return Ok(new
+                {
+                    success = false,
+                    message = "این کد ملی برای راننده دیگری ثبت شده است."
+                });
+            }
+
+            if (await _repository.ExistsByUsernameAsync(
+                dto.Username.Trim(),
+                id))
+            {
+                return Ok(new
+                {
+                    success = false,
+                    message = "این نام کاربری برای راننده دیگری استفاده شده است."
+                });
+            }
+
+            var driver = BuildDriver(
+                dto.FirstName,
+                dto.LastName,
+                dto.NationalId,
+                dto.Phone,
+                dto.LicenseType,
+                dto.Username);
+
+            if (!string.IsNullOrWhiteSpace(dto.Password))
+            {
+                driver.PasswordHash =
+                    PasswordHasher.Hash(dto.Password.Trim());
+            }
+            else
+            {
+                driver.PasswordHash = null;
+            }
 
             try
             {
-                var updated = await _driverRepository.UpdateAsync(id, driver);
+                var updated =
+                    await _repository.UpdateAsync(id, driver);
+
                 if (!updated)
                 {
-                    return StatusCode(500, new { message = "ویرایش راننده انجام نشد." });
+                    return Ok(new
+                    {
+                        success = false,
+                        message = "ویرایش راننده انجام نشد."
+                    });
                 }
 
-                var updatedDriver = await _driverRepository.GetByIdAsync(id);
+                var updatedDriver =
+                    await _repository.GetByIdAsync(id);
 
-                await _hubContext.Clients.All.SendAsync("DriverUpdated", updatedDriver);
+                await _hub.Clients.All.SendAsync(
+                    "DriverUpdated",
+                    updatedDriver);
 
-                return Ok(updatedDriver);
+                return Ok(new
+                {
+                    success = true,
+                    data = updatedDriver,
+                    message = "راننده با موفقیت ویرایش شد."
+                });
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                return StatusCode(500, new { message = "خطا در ویرایش راننده." });
+                return Ok(new
+                {
+                    success = false,
+                    message = "خطا در ویرایش راننده.",
+                    detail = ex.Message
+                });
             }
         }
 
+        // حذف راننده
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
         {
-            var existingDriver = await _driverRepository.GetByIdAsync(id);
-            if (existingDriver == null)
+            var existing =
+                await _repository.GetByIdAsync(id);
+
+            if (existing == null)
             {
-                return NotFound(new { message = "راننده پیدا نشد." });
+                return Ok(new
+                {
+                    success = false,
+                    message = "راننده پیدا نشد."
+                });
             }
 
             try
             {
-                var deleted = await _driverRepository.DeleteAsync(id);
+                var deleted =
+                    await _repository.DeleteAsync(id);
+
                 if (!deleted)
                 {
-                    return StatusCode(500, new { message = "حذف راننده انجام نشد." });
+                    return Ok(new
+                    {
+                        success = false,
+                        message = "حذف راننده انجام نشد."
+                    });
                 }
 
-                await _hubContext.Clients.All.SendAsync("DriverDeleted", id);
+                await _hub.Clients.All.SendAsync(
+                    "DriverDeleted",
+                    id);
 
-                return Ok(new { message = "راننده با موفقیت حذف شد.", id });
+                return Ok(new
+                {
+                    success = true,
+                    id = id,
+                    message = "راننده با موفقیت حذف شد."
+                });
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                return StatusCode(500, new { message = "خطا در حذف راننده." });
+                return Ok(new
+                {
+                    success = false,
+                    message = "امکان حذف راننده وجود ندارد. ابتدا تخصیص‌های وابسته را بررسی کنید.",
+                    detail = ex.Message
+                });
             }
         }
 
-        private string ValidateDriver(
-            string firstName,
-            string lastName,
-            string nationalId,
+        // ساخت مدل راننده
+        private static Driver BuildDriver(
+            string first,
+            string last,
+            string national,
             string phone,
-            int licenseType)
+            int license,
+            string username)
         {
-            if (string.IsNullOrWhiteSpace(firstName))
+            return new Driver
+            {
+                FirstName = first.Trim(),
+                LastName = last.Trim(),
+                NationalId = national.Trim(),
+                Phone = phone.Trim(),
+                LicenseType = license,
+                Username = username.Trim()
+            };
+        }
+
+        // اعتبارسنجی اطلاعات راننده
+        private static string Validate(
+            string first,
+            string last,
+            string national,
+            string phone,
+            int license,
+            string username,
+            string password,
+            bool passwordRequired)
+        {
+            if (string.IsNullOrWhiteSpace(first))
                 return "نام الزامی است.";
 
-            if (string.IsNullOrWhiteSpace(lastName))
+            if (string.IsNullOrWhiteSpace(last))
                 return "نام خانوادگی الزامی است.";
 
-            if (string.IsNullOrWhiteSpace(nationalId))
-                return "کد ملی الزامی است.";
+            if (string.IsNullOrWhiteSpace(national) ||
+                national.Trim().Length != 10 ||
+                !national.Trim().All(char.IsDigit))
+                return "کد ملی باید ۱۰ رقم باشد.";
 
-            if (string.IsNullOrWhiteSpace(phone))
-                return "شماره تلفن الزامی است.";
+            if (string.IsNullOrWhiteSpace(phone) ||
+                phone.Trim().Length < 10 ||
+                phone.Trim().Length > 20)
+                return "شماره تماس نامعتبر است.";
 
-            if (firstName.Trim().Length > 100)
-                return "نام نمی‌تواند بیشتر از 100 کاراکتر باشد.";
-
-            if (lastName.Trim().Length > 100)
-                return "نام خانوادگی نمی‌تواند بیشتر از 100 کاراکتر باشد.";
-
-            if (nationalId.Trim().Length < 10 || nationalId.Trim().Length > 20)
-                return "کد ملی نامعتبر است.";
-
-            if (!nationalId.Trim().All(char.IsDigit))
-                return "کد ملی باید فقط شامل عدد باشد.";
-
-            if (phone.Trim().Length < 10 || phone.Trim().Length > 20)
-                return "شماره تلفن نامعتبر است.";
-
-            if (licenseType < 1 || licenseType > 3)
+            if (license < 1 || license > 3)
                 return "نوع گواهینامه نامعتبر است.";
+
+            if (string.IsNullOrWhiteSpace(username) ||
+                username.Trim().Length < 3)
+                return "نام کاربری الزامی است.";
+
+            if (passwordRequired &&
+                string.IsNullOrWhiteSpace(password))
+                return "رمز عبور الزامی است.";
+
+            if (!string.IsNullOrWhiteSpace(password) &&
+                password.Trim().Length < 6)
+                return "رمز عبور باید حداقل ۶ کاراکتر باشد.";
 
             return null;
         }
     }
 }
+
