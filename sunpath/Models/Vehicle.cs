@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace sunpath.Models
 {
@@ -24,10 +24,23 @@ namespace sunpath.Models
         public string InsuranceNumber { get; set; }
         public DateTime? InsuranceExpiryDate { get; set; }
         public int? CurrentDriverId { get; set; }
-
-        // برای نمایش در UI
         public string CurrentDriverName { get; set; }
         public string VehicleTypeName { get; set; }
         public string StatusName { get; set; }
+
+        // مأموریت فعال خودرو؛ برای نمایش مسیر در مانیتورینگ.
+        public int? ActiveDispatchId { get; set; }
+        public int? ActiveDispatchDriverId { get; set; }
+        public string OriginAddress { get; set; }
+        public decimal? OriginLat { get; set; }
+        public decimal? OriginLng { get; set; }
+        public string DestinationAddress { get; set; }
+        public decimal? DestinationLat { get; set; }
+        public decimal? DestinationLng { get; set; }
+        public string DispatchStatus { get; set; }
+        public double FuelConsumedLiters { get; set; }
+        public double TripDistanceKm { get; set; }
+        public int TripDurationSeconds { get; set; }
+        public int StopDurationSeconds { get; set; }
     }
 }
