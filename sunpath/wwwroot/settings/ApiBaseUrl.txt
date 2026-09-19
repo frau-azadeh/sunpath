@@ -1,3 +1,5 @@
 ﻿http://192.168.1.137:3000
 https://localhost:3000
 http://localhost:3000
+http://172.24.220.11:3000
+http://0.0.0.0:3000

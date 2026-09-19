@@ -1,4 +1,5 @@
-﻿
+﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Microsoft.AspNetCore.Builder;
@@ -15,6 +16,8 @@ namespace sunpath
 {
     public class Startup
     {
+        private const string CorsPolicyName = "CorsPolicy";
+
         public Startup(IConfiguration configuration)
         {
             Configuration = configuration;
@@ -29,40 +32,44 @@ namespace sunpath
             // ---------------------------------------------------------
             services.AddCors(options =>
             {
-                options.AddPolicy("CorsPolicy", builder =>
+                options.AddPolicy(CorsPolicyName, builder =>
                 {
+                    var allowedOrigins = new List<string>
+                    {
+                        "http://localhost:3000",
+                        "https://localhost:3000"
+                    };
+
                     var corsFilePath = Path.Combine(
                         Directory.GetCurrentDirectory(),
                         "wwwroot",
                         "settings",
                         "CorsOrigins.txt");
 
-                    // Origin های پیش‌فرض برای اجرای Frontend در حالت Development
-                    string[] allowedOrigins =
-                    {
-                        "http://localhost:3000",
-                        "https://localhost:3000"
-                    };
-
-                    // اگر فایل CorsOrigins.txt وجود داشته باشد،
-                    // Origin های داخل فایل استفاده می‌شوند.
                     if (File.Exists(corsFilePath))
                     {
-                        var fileContent = File.ReadAllLines(corsFilePath)
-                            .Where(line => !string.IsNullOrWhiteSpace(line))
+                        var fileOrigins = File
+                            .ReadAllLines(corsFilePath)
                             .Select(line => line.Trim())
-                            .Where(line => line != "*")
-                            .Distinct()
+                            .Where(line =>
+                                !string.IsNullOrWhiteSpace(line) &&
+                                line != "*")
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
                             .ToArray();
 
-                        if (fileContent.Length > 0)
+                        foreach (var origin in fileOrigins)
                         {
-                            allowedOrigins = fileContent;
+                            if (!allowedOrigins.Contains(
+                                origin,
+                                StringComparer.OrdinalIgnoreCase))
+                            {
+                                allowedOrigins.Add(origin);
+                            }
                         }
                     }
 
                     builder
-                        .WithOrigins(allowedOrigins)
+                        .WithOrigins(allowedOrigins.ToArray())
                         .AllowAnyHeader()
                         .AllowAnyMethod()
                         .AllowCredentials();
@@ -72,7 +79,8 @@ namespace sunpath
             // ---------------------------------------------------------
             // MVC - ASP.NET Core 2.1
             // ---------------------------------------------------------
-            services.AddMvc()
+            services
+                .AddMvc()
                 .SetCompatibilityVersion(
                     CompatibilityVersion.Version_2_1);
 
@@ -84,17 +92,23 @@ namespace sunpath
             // ---------------------------------------------------------
             // Vehicle Services
             // ---------------------------------------------------------
-            services.AddScoped<IVehicleService, VehicleService>();
+            services.AddScoped<
+                IVehicleService,
+                VehicleService>();
 
             // ---------------------------------------------------------
             // Dispatch Services
             // ---------------------------------------------------------
-            services.AddScoped<IDispatchService, DispatchService>();
+            services.AddScoped<
+                IDispatchService,
+                DispatchService>();
 
             // ---------------------------------------------------------
             // Driver Repository
             // ---------------------------------------------------------
-            services.AddScoped<IDriverRepository, DriverRepository>();
+            services.AddScoped<
+                IDriverRepository,
+                DriverRepository>();
 
             // ---------------------------------------------------------
             // SignalR
@@ -125,17 +139,22 @@ namespace sunpath
 
             // ---------------------------------------------------------
             // CORS
-            // باید قبل از MVC و قبل از Endpoint ها اجرا شود.
+            //
+            // ASP.NET Core 2.1:
+            // باید قبل از SignalR و MVC باشد.
             // ---------------------------------------------------------
-            app.UseCors("CorsPolicy");
+            app.UseCors(CorsPolicyName);
 
             // ---------------------------------------------------------
             // SignalR
             // ---------------------------------------------------------
             app.UseSignalR(routes =>
             {
-                routes.MapHub<VehicleHub>("/vehicleHub");
-                routes.MapHub<DriverHub>("/driverHub");
+                routes.MapHub<VehicleHub>(
+                    "/vehicleHub");
+
+                routes.MapHub<DriverHub>(
+                    "/driverHub");
             });
 
             // ---------------------------------------------------------
@@ -145,4 +164,3 @@ namespace sunpath
         }
     }
 }
-

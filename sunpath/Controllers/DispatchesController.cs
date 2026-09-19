@@ -190,7 +190,30 @@ namespace sunpath.Controllers
                 });
             }
         }
+        [HttpGet("driver/{driverId}/history")]
+        public async Task<IActionResult> GetDriverHistory(
+    int driverId
+)
+        {
+            if (driverId <= 0)
+            {
+                return BadRequest(
+                    new
+                    {
+                        message =
+                            "شناسه راننده نامعتبر است."
+                    }
+                );
+            }
 
+            var history =
+                await _service
+                    .GetDriverRouteHistoryAsync(
+                        driverId
+                    );
+
+            return Ok(history);
+        }
         // حذف مأموریت
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
