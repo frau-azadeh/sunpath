@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration;
+using Microsoft.AspNetCore.SignalR;
+using sunpath.Hubs;
 using sunpath.Models;
 using sunpath.Services.Interface;
 using System;
@@ -12,10 +14,12 @@ namespace sunpath.Services.Implementation
     public class VehicleService : IVehicleService
     {
         private readonly string _connectionString;
+        private readonly IHubContext<VehicleHub> _hub;
 
-        public VehicleService(IConfiguration configuration)
+        public VehicleService(IConfiguration configuration, IHubContext<VehicleHub> hub)
         {
             _connectionString = configuration.GetConnectionString("SunPathConnection");
+            _hub = hub;
         }
 
         public async Task<List<Vehicle>> GetAllVehiclesAsync()
@@ -285,7 +289,9 @@ namespace sunpath.Services.Implementation
 
                 await connection.OpenAsync();
 
-                return await command.ExecuteNonQueryAsync() > 0;
+                var updated = await command.ExecuteNonQueryAsync() > 0;
+                if (updated) await _hub.Clients.All.SendAsync("VehiclePositionChanged", new { vehicleId = id, latitude, longitude, speed, heading, recordedAtUtc = DateTime.UtcNow });
+                return updated;
             }
         }
 

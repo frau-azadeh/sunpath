@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -30,6 +30,9 @@ namespace sunpath.Models
         public decimal? DestinationLongitude { get; set; }
 
         public DispatchStatus Status { get; set; }
+
+        public DateTime? AcceptedAtUtc { get; set; }
+        public DateTime? ArrivedAtUtc { get; set; }
 
         public DateTime? StartedAtUtc { get; set; }
 

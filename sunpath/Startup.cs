@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -8,6 +8,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using sunpath.Data;
+using sunpath.Services;
+using Microsoft.Extensions.Hosting;
 using sunpath.Hubs;
 using sunpath.Services.Implementation;
 using sunpath.Services.Interface;
@@ -113,12 +115,18 @@ namespace sunpath
             // ---------------------------------------------------------
             // SignalR
             // ---------------------------------------------------------
+            services.AddDataProtection();
+            services.AddSingleton<DriverSessionService>();
+            services.AddScoped<MissionNotificationService>();
+            services.AddScoped<MissionWorkflowService>();
             services.AddSignalR();
+            services.AddSingleton<VehicleSimulationService>();
+            services.AddSingleton<IHostedService>(provider => provider.GetRequiredService<VehicleSimulationService>());
         }
 
         public void Configure(
             IApplicationBuilder app,
-            IHostingEnvironment env)
+            Microsoft.AspNetCore.Hosting.IHostingEnvironment env)
         {
             // ---------------------------------------------------------
             // Environment
@@ -135,7 +143,8 @@ namespace sunpath
             // ---------------------------------------------------------
             // HTTPS
             // ---------------------------------------------------------
-            app.UseHttpsRedirection();
+            // HTTPS terminates at the frontend/proxy for LAN access.
+            if (Configuration.GetValue<bool>("ForceHttps")) app.UseHttpsRedirection();
 
             // ---------------------------------------------------------
             // CORS
@@ -152,6 +161,8 @@ namespace sunpath
             {
                 routes.MapHub<VehicleHub>(
                     "/vehicleHub");
+
+                routes.MapHub<SunPath.Hubs.FleetHub>("/hubs/fleet");
 
                 routes.MapHub<DriverHub>(
                     "/driverHub");

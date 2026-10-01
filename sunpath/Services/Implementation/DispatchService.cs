@@ -16,6 +16,7 @@ namespace sunpath.Services.Implementation
     {
         private readonly string _connectionString;
         private readonly IHubContext<VehicleHub> _vehicleHub;
+        private readonly MissionNotificationService _notifications;
 
         private const double MinMovementKm = 0.005;
         private const double MaxMovementKm = 2.0;
@@ -24,12 +25,13 @@ namespace sunpath.Services.Implementation
 
         public DispatchService(
             IConfiguration configuration,
-            IHubContext<VehicleHub> vehicleHub)
+            IHubContext<VehicleHub> vehicleHub, MissionNotificationService notifications)
         {
             _connectionString =
                 configuration.GetConnectionString("SunPathConnection");
 
             _vehicleHub = vehicleHub;
+            _notifications = notifications;
         }
 
         public async Task<int> CreateAsync(
@@ -193,7 +195,11 @@ WHERE Id = @VehicleId;";
                                 .ExecuteNonQueryAsync();
                         }
 
+                        MissionNotification assignmentNotification = null;
+                        if (request.DriverId.HasValue)
+                            assignmentNotification = await MissionNotificationService.InsertAsync(connection, transaction, id, "driver", request.DriverId, "assigned", "مأموریت جدید برای شما", request.Title ?? ("مأموریت " + id));
                         transaction.Commit();
+                        await _notifications.PublishAsync(assignmentNotification);
 
                         var dispatch =
                             await GetByIdAsync(id);
@@ -285,6 +291,10 @@ WHERE Id = @VehicleId;";
             const string sql = @"
 UPDATE Missions
 SET
+    Status = CASE WHEN ISNULL(DriverId,0)<>ISNULL(@DriverId,0) THEN 1 ELSE Status END,
+    StartedAtUtc = CASE WHEN ISNULL(DriverId,0)<>ISNULL(@DriverId,0) THEN NULL ELSE StartedAtUtc END,
+    AcceptedAtUtc = CASE WHEN ISNULL(DriverId,0)<>ISNULL(@DriverId,0) THEN NULL ELSE AcceptedAtUtc END,
+    ArrivedAtUtc = CASE WHEN ISNULL(DriverId,0)<>ISNULL(@DriverId,0) OR ISNULL(DestinationLatitude,0)<>ISNULL(@DestinationLatitude,0) OR ISNULL(DestinationLongitude,0)<>ISNULL(@DestinationLongitude,0) THEN NULL ELSE ArrivedAtUtc END,
     DriverId = @DriverId,
     VehicleId = @VehicleId,
     Title = @Title,
@@ -395,8 +405,16 @@ WHERE Id = @Id;";
 
                 await connection.OpenAsync();
 
-                var updated =
-                    await command.ExecuteNonQueryAsync() > 0;
+                bool updated; MissionNotification assignmentNotification = null;
+                using (var transaction = connection.BeginTransaction())
+                {
+                    command.Transaction = transaction;
+                    updated = await command.ExecuteNonQueryAsync() > 0;
+                    if (updated && request.DriverId.HasValue && current.DriverId != request.DriverId)
+                        assignmentNotification = await MissionNotificationService.InsertAsync(connection, transaction, id, "driver", request.DriverId, "assigned", "مأموریت به شما اختصاص داده شد", request.Title ?? ("مأموریت " + id));
+                    transaction.Commit();
+                }
+                await _notifications.PublishAsync(assignmentNotification);
 
                 if (updated)
                 {
@@ -1177,7 +1195,8 @@ SELECT
     m.DestinationLongitude,
     m.StartedAtUtc,
     m.CompletedAtUtc,
-    v.PlateNumber
+    v.PlateNumber,
+    v.VehicleType
 FROM Missions m
 LEFT JOIN Vehicles v
     ON v.Id = m.VehicleId
@@ -1235,6 +1254,8 @@ ORDER BY
                                         reader[
                                             "VehicleId"
                                         ]),
+
+                                VehicleType = reader["VehicleType"] == DBNull.Value ? (int?)null : Convert.ToInt32(reader["VehicleType"]),
 
                                 VehiclePlate =
                                     reader[
@@ -2187,6 +2208,9 @@ WHERE
                         reader[
                             "Status"
                         ]),
+
+                AcceptedAtUtc = reader["AcceptedAtUtc"] == DBNull.Value ? (DateTime?)null : DateTime.SpecifyKind(Convert.ToDateTime(reader["AcceptedAtUtc"]), DateTimeKind.Utc),
+                ArrivedAtUtc = reader["ArrivedAtUtc"] == DBNull.Value ? (DateTime?)null : DateTime.SpecifyKind(Convert.ToDateTime(reader["ArrivedAtUtc"]), DateTimeKind.Utc),
 
                 StartedAtUtc =
                     reader[

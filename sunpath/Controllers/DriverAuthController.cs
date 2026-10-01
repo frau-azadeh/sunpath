@@ -1,6 +1,7 @@
 
 using Microsoft.AspNetCore.Mvc;
 using sunpath.Models;
+using sunpath.Services.Implementation;
 using sunpath.Services.Interface;
 using System.Threading.Tasks;
 
@@ -11,10 +12,12 @@ namespace sunpath.Controllers
     public class DriverAuthController : ControllerBase
     {
         private readonly IDriverRepository _repository;
+        private readonly DriverSessionService _sessions;
 
-        public DriverAuthController(IDriverRepository repository)
+        public DriverAuthController(IDriverRepository repository, DriverSessionService sessions)
         {
             _repository = repository;
+            _sessions = sessions;
         }
 
         [HttpPost("login")]
@@ -32,12 +35,7 @@ namespace sunpath.Controllers
                 });
             }
 
-            // دریافت لیست راننده‌ها از Repository
-            var drivers = await _repository.GetAllAsync();
-
-            // پیدا کردن راننده بر اساس شماره موبایل
-            var driver = drivers.Find(x =>
-                x.Phone == request.Username.Trim());
+            var driver = await _repository.FindByCredentialsAsync(request.Username.Trim(), request.Password);
 
             // اگر راننده پیدا نشد
             if (driver == null)
@@ -45,7 +43,7 @@ namespace sunpath.Controllers
                 return Ok(new DriverLoginResponse
                 {
                     Success = false,
-                    Message = "راننده‌ای با این نام کاربری پیدا نشد."
+                    Message = "نام کاربری یا رمز عبور نامعتبر است."
                 });
             }
 
@@ -61,7 +59,7 @@ namespace sunpath.Controllers
                 ).Trim(),
                 Phone = driver.Phone,
                 CurrentVehicleId = 0,
-                Token = null,
+                Token = _sessions.Issue(driver.Id),
                 Message = "ورود با موفقیت انجام شد."
             });
         }

@@ -1,9 +1,11 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using sunpath.Models;
 using sunpath.Services;
 using sunpath.Services.Interface;
-using System.Threading.Tasks;
-using System.Linq;
 
 namespace sunpath.Controllers
 {
@@ -11,81 +13,51 @@ namespace sunpath.Controllers
     [ApiController]
     public class SimulationController : ControllerBase
     {
-        private readonly IVehicleService _vehicleService;
-        private readonly VehicleSimulationService _simulationService;
-
-        public SimulationController(
-            IVehicleService vehicleService,
-            VehicleSimulationService simulationService)
+        private readonly IDispatchService _dispatches;
+        private readonly IVehicleService _vehicles;
+        private readonly VehicleSimulationService _simulation;
+        public SimulationController(IDispatchService dispatches, IVehicleService vehicles, VehicleSimulationService simulation)
+        { _dispatches = dispatches; _vehicles = vehicles; _simulation = simulation; }
+        [HttpGet("status/{vehicleId}")]
+        public async Task<IActionResult> Status(int vehicleId) => Ok(new { running = await _simulation.IsRunningAsync(vehicleId) });
+        [HttpPost("start-mission/{missionId}")]
+        public async Task<IActionResult> StartMission(int missionId, [FromBody] SimulationRequest request)
         {
-            _vehicleService = vehicleService;
-            _simulationService = simulationService;
-        }
-
-        // شروع حرکت خودکار
-        // GET/POST: /api/simulation/start/{id}?lat=35.70000&lng=51.35000
-        [HttpPost("start/{id}")]
-        public async Task<IActionResult> Start(int id, [FromQuery] double lat, [FromQuery] double lng)
-        {
-            _simulationService.Start(id, lat, lng);
-            return Ok(new { message = $"شبیه‌سازی خودرو {id} شروع شد", vehicleId = id });
-        }
-
-        // اگر نمیدونی مختصات دقیق خودرو چیه، این متد از خود DB خونده و شروع می‌کنه
-        [HttpPost("start-from-db/{id}")]
-        public async Task<IActionResult> StartFromDb(int id)
-        {
-            var vehicles = await _vehicleService.GetAllVehiclesAsync();
-            var vehicle = vehicles.FirstOrDefault(v => v.Id == id);
-
-            if (vehicle == null)
-                return NotFound(new { message = "خودرو پیدا نشد" });
-
-            // بررسی اینکه آیا مختصات در دیتابیس وجود دارد یا خیر
-            if (!vehicle.Latitude.HasValue || !vehicle.Longitude.HasValue)
+            if (request == null || !Finite(request.SpeedKmh) || request.SpeedKmh < 5 || request.SpeedKmh > 120)
+                return BadRequest(new { message = "سرعت شبیه‌سازی باید بین ۵ و ۱۲۰ باشد." });
+            var mission = await _dispatches.GetByIdAsync(missionId);
+            if (mission == null || await _vehicles.GetByIdAsync(mission.VehicleId) == null) return NotFound(new { message = "مأموریت یا وسیله پیدا نشد." });
+            if (mission.Status != DispatchStatus.Assigned && mission.Status != DispatchStatus.Started)
+                return BadRequest(new { message = "فقط مأموریت فعال قابل شبیه‌سازی است." });
+            if (!mission.OriginLatitude.HasValue || !mission.OriginLongitude.HasValue || !mission.DestinationLatitude.HasValue || !mission.DestinationLongitude.HasValue)
+                return BadRequest(new { message = "مبدأ و مقصد را ابتدا ثبت کنید." });
+            var origin = new SimulationPoint { Latitude = (double)mission.OriginLatitude.Value, Longitude = (double)mission.OriginLongitude.Value };
+            var destination = new SimulationPoint { Latitude = (double)mission.DestinationLatitude.Value, Longitude = (double)mission.DestinationLongitude.Value };
+            if (!Valid(origin) || !Valid(destination) || VehicleSimulationService.DistanceKm(origin.Latitude, origin.Longitude, destination.Latitude, destination.Longitude) < 0.001)
+                return BadRequest(new { message = "مختصات مبدأ و مقصد معتبر و متفاوت وارد کنید." });
+            var route = request.Route;
+            if (route == null || route.Count == 0) route = new List<SimulationPoint> { origin, destination };
+            else
             {
-                return BadRequest(new { message = "مختصات این خودرو در دیتابیس ثبت نشده است و امکان شروع شبیه‌سازی وجود ندارد." });
+                if (route.Count < 2 || route.Count > 10000 || route.Any(point => !Valid(point)) ||
+                    VehicleSimulationService.DistanceKm(origin.Latitude, origin.Longitude, route[0].Latitude, route[0].Longitude) > 1 ||
+                    VehicleSimulationService.DistanceKm(destination.Latitude, destination.Longitude, route[route.Count - 1].Latitude, route[route.Count - 1].Longitude) > 1)
+                    return BadRequest(new { message = "مسیر شبیه‌سازی نامعتبر است." });
+                route.Insert(0, origin); route.Add(destination);
             }
-
-            _simulationService.Start(id, vehicle.Latitude.Value, vehicle.Longitude.Value, vehicle.Heading);
-
-            return Ok(new
-            {
-                message = $"شبیه‌سازی خودرو با پلاک {vehicle.PlateNumber} از موقعیت دیتابیس آغاز شد.",
-                vehicleId = id
-            });
+            try { await _simulation.StartMissionAsync(mission, request.SpeedKmh, route); }
+            catch (InvalidOperationException error) { return BadRequest(new { message = error.Message }); }
+            return Ok(new { message = "حرکت آزمایشی از مبدأ به مقصد شروع شد.", vehicleId = mission.VehicleId });
         }
-
-
-        // توقف حرکت خودکار
-        // DELETE: /api/simulation/stop/{id}
-        [HttpDelete("stop/{id}")]
-        public IActionResult Stop(int id)
-        {
-            _simulationService.Stop(id);
-            return Ok(new { message = $"شبیه‌سازی خودرو {id} متوقف شد", vehicleId = id });
-        }
-
-        // حرکت دستی (یک پله فقط) — بدون شبیه‌سازی، مستقیم از فرانت صدا بزن
-        [HttpPost("move/{id}")]
-        public async Task<IActionResult> Move(int id, [FromBody] VehiclePositionPayload payload)
-        {
-            await _vehicleService.UpdateVehicleStatusAsync(
-                id,
-                payload.Latitude,
-                payload.Longitude,
-                payload.Speed,
-                payload.Heading);
-            return Ok(new { message = "موقعیت دستی ارسال شد" });
-        }
+        [HttpDelete("stop/{vehicleId}")]
+        public async Task<IActionResult> Stop(int vehicleId)
+        { await _simulation.StopAsync(vehicleId); return Ok(new { message = "حرکت آزمایشی متوقف شد." }); }
+        private static bool Finite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
+        private static bool Valid(SimulationPoint point) => point != null && Finite(point.Latitude) && Finite(point.Longitude) && point.Latitude >= -90 && point.Latitude <= 90 && point.Longitude >= -180 && point.Longitude <= 180;
     }
-
-    // مدل داخلی برای حرکت دستی — هماهنگ با فرانت
-    public class VehiclePositionPayload
+    public class SimulationRequest
     {
-        public double Latitude { get; set; }
-        public double Longitude { get; set; }
-        public double Speed { get; set; }
-        public double Heading { get; set; }
+        public double SpeedKmh { get; set; } = 40;
+        public List<SimulationPoint> Route { get; set; }
     }
 }

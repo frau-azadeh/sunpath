@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using sunpath.Models.Dto;
+using sunpath.Services;
+using sunpath.Services.Implementation;
 using sunpath.Services.Interface;
 using System;
 using System.Threading.Tasks;
@@ -10,11 +12,46 @@ namespace sunpath.Controllers
     [Route("api/[controller]")]
     public class DispatchesController : ControllerBase
     {
+        private readonly MissionWorkflowService _workflow;
+        private readonly DriverSessionService _sessions;
         private readonly IDispatchService _service;
+        private readonly VehicleSimulationService _simulation;
 
-        public DispatchesController(IDispatchService service)
+        public DispatchesController(IDispatchService service, VehicleSimulationService simulation, MissionWorkflowService workflow, DriverSessionService sessions)
         {
             _service = service;
+            _workflow = workflow;
+            _sessions = sessions;
+            _simulation = simulation;
+        }
+
+        [HttpPost("{id}/driver-start")]
+        public Task<IActionResult> DriverStart(int id) => RecordDriverStage(id, false);
+        [HttpPost("{id}/driver-complete")]
+        public Task<IActionResult> DriverComplete(int id) => RecordDriverStage(id, true);
+        private async Task<IActionResult> RecordDriverStage(int id, bool complete)
+        {
+            var driverId = _sessions.FromAuthorization(Request.Headers["Authorization"].ToString());
+            if (!driverId.HasValue) return Unauthorized();
+            try { return Ok(await _workflow.StageAsync(id, driverId.Value, complete)); }
+            catch (InvalidOperationException error) { return Conflict(new { message = error.Message }); }
+        }
+
+        [HttpPost("{id}/accept")]
+        public Task<IActionResult> Accept(int id) => RecordDriverAction(id, false);
+        [HttpPost("{id}/arrive")]
+        public Task<IActionResult> Arrive(int id) => RecordDriverAction(id, true);
+        private async Task<IActionResult> RecordDriverAction(int id, bool arrived)
+        {
+            var driverId = _sessions.FromAuthorization(Request.Headers["Authorization"].ToString());
+            if (!driverId.HasValue) return Unauthorized();
+            if (arrived) {
+                var mission = await _service.GetByIdAsync(id);
+                if (mission != null && await _simulation.IsRunningAsync(mission.VehicleId))
+                    return Conflict(new { message = "ابتدا شبیه‌سازی را متوقف کنید؛ رسیدن واقعی جداگانه ثبت می‌شود." });
+            }
+            try { return Ok(await _workflow.RecordAsync(id, driverId.Value, arrived)); }
+            catch (InvalidOperationException error) { return Conflict(new { message = error.Message }); }
         }
 
         // دریافت تمام مأموریت‌ها
@@ -166,6 +203,14 @@ namespace sunpath.Controllers
 
             try
             {
+                if (await _simulation.IsRunningAsync(request.VehicleId))
+                    return Conflict(new { message = "شبیه‌سازی این وسیله فعال است؛ ابتدا آن را متوقف کنید تا GPS واقعی ثبت شود." });
+                if (request.MissionId.HasValue)
+                {
+                    var mission = await _service.GetByIdAsync(request.MissionId.Value);
+                    if (mission == null || mission.VehicleId != request.VehicleId || mission.DriverId != request.DriverId || mission.ArrivedAtUtc.HasValue || (int)mission.Status != 2)
+                        return Conflict(new { message = "مأموریت فعال نیست یا رسیدن به مقصد ثبت شده است." });
+                }
                 var updated =
                     await _service.UpdateVehicleLocationAsync(request);
 

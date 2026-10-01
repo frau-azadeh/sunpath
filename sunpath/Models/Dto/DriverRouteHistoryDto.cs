@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace sunpath.Models.Dto
@@ -12,6 +12,7 @@ namespace sunpath.Models.Dto
         public int VehicleId { get; set; }
 
         public string VehiclePlate { get; set; }
+        public int? VehicleType { get; set; }
 
         public string OriginTitle { get; set; }
 

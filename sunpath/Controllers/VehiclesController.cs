@@ -1,8 +1,9 @@
-﻿using System.Threading.Tasks;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using sunpath.Hubs;
 using sunpath.Models;
+using sunpath.Services.Implementation;
 using sunpath.Services.Interface;
 
 namespace sunpath.Controllers
@@ -46,6 +47,9 @@ namespace sunpath.Controllers
             if (string.IsNullOrWhiteSpace(vehicle.PlateNumber))
                 return BadRequest(new { message = "شماره پلاک الزامی است." });
 
+            var normalizedPlate = VehiclePlateValidator.Normalize(vehicle.PlateNumber, vehicle.VehicleType);
+            if (normalizedPlate == null) return BadRequest(new { message = vehicle.VehicleType == 3 ? "پلاک موتور باید سه رقم بالا و پنج رقم پایین باشد." : "قالب پلاک خودرو نامعتبر است." });
+            vehicle.PlateNumber = normalizedPlate;
             var exists = await _service.ExistsByPlateNumberAsync(vehicle.PlateNumber);
             if (exists)
                 return BadRequest(new { message = "این شماره پلاک قبلاً ثبت شده است." });
@@ -67,6 +71,10 @@ namespace sunpath.Controllers
         {
             if (vehicle == null)
                 return BadRequest(new { message = "داده‌های ورودی نامعتبر است." });
+
+            var normalizedPlate = VehiclePlateValidator.Normalize(vehicle.PlateNumber, vehicle.VehicleType);
+            if (normalizedPlate == null) return BadRequest(new { message = vehicle.VehicleType == 3 ? "پلاک موتور باید سه رقم بالا و پنج رقم پایین باشد." : "قالب پلاک خودرو نامعتبر است." });
+            vehicle.PlateNumber = normalizedPlate;
 
             var current = await _service.GetByIdAsync(id);
             if (current == null)
@@ -129,7 +137,6 @@ namespace sunpath.Controllers
             if (!success)
                 return NotFound(new { message = "وسیله نقلیه مورد نظر پیدا نشد." });
 
-            await _hubContext.Clients.All.SendAsync("VehiclePositionChanged", updateInfo);
 
             return Ok(new { message = "موقعیت با موفقیت آپدیت شد." });
         }
